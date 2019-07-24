@@ -6,9 +6,9 @@ import (
 )
 
 func main() {
-	now := time.Now()
-	criteria := Criteria{Age: Age(35)}
-	membership := criteria.Membership(NewDayType(now), NewTimeType(now))
+	now := ReservationTime{time.Date(2019, time.July, 1, 12, 0, 0, 0, time.Local)}
+	criteria := Criteria{Age: Age(35), HasMemberCard: true}
+	membership := criteria.Membership(now)
 	fmt.Printf("+v, +v", membership, membership.TicketPrice())
 }
 
@@ -17,15 +17,26 @@ type Membership interface {
 }
 
 type cinemaCitizen struct {
-	dayType  DayType
-	timeType TimeType
+	registerTime ReservationTime
+}
+
+func (c cinemaCitizen) dayType() DayType {
+	// この場合だけ映画の日より平日判定を優先させる
+	switch {
+	case c.registerTime.Weekday() >= time.Monday && c.registerTime.Weekday() <= time.Friday:
+		return Weekday
+	case c.registerTime.Day() == 1:
+		return Movieday
+	default:
+		return Holiday
+	}
 }
 
 func (c cinemaCitizen) TicketPrice() Yen {
 	switch {
-	case c.dayType == Weekday || (c.dayType == Holiday && c.timeType == LateTime):
+	case c.dayType() == Weekday || (c.dayType() == Holiday && NewTimeType(c.registerTime) == LateTime):
 		return Yen(1000)
-	case c.dayType == Movieday:
+	case c.dayType() == Movieday:
 		return Yen(1100)
 	default:
 		return Yen(1300)
@@ -117,12 +128,12 @@ type Criteria struct {
 	WithJuniorHandicapped    bool
 }
 
-func (c Criteria) Membership(dayType DayType, timeType TimeType) Membership {
+func (c Criteria) Membership(r ReservationTime) Membership {
 	switch {
 	case c.HasMemberCard && c.Age >= Age(60):
 		return cinemaCitizenSenior{}
 	case c.HasMemberCard && c.Age < Age(60):
-		return cinemaCitizen{dayType: dayType, timeType: timeType}
+		return cinemaCitizen{registerTime: r}
 	case (c.StudentType <= highStudentType && c.HasDisabilityCertificate) || c.WithJuniorHandicapped:
 		return juniorHandicapped{}
 	case (c.StudentType > highStudentType && c.HasDisabilityCertificate) || c.WithSeniorHandicapped:
@@ -132,11 +143,11 @@ func (c Criteria) Membership(dayType DayType, timeType TimeType) Membership {
 	case (c.StudentType == juiorHighStudentType || c.StudentType == highStudentType) && c.HasStudentCertificate:
 		return highStudent{}
 	case c.StudentType == seniorStudentType && c.HasStudentCertificate:
-		return seniorStudent{}
+		return seniorStudent{dayType: NewDayType(r), timeType: NewTimeType(r)}
 	case c.Age >= Age(70) && c.HasStudentCertificate:
 		return senior{}
 	default:
-		return normal{dayType: dayType, timeType: timeType}
+		return normal{dayType: NewDayType(r), timeType: NewTimeType(r)}
 	}
 }
 
@@ -152,7 +163,10 @@ const (
 	seniorStudentType    = StudentType(5)
 )
 
+type ReservationTime struct{ time.Time }
+
 type description string
+
 type DayType struct {
 	description
 }
@@ -172,23 +186,23 @@ var (
 	LateTime   = TimeType{"レイトショー"}
 )
 
-func NewDayType(t time.Time) DayType {
+func NewDayType(r ReservationTime) DayType {
 	// 一旦祝日考慮なし
 	switch {
-	case t.Day() == 1:
+	case r.Day() == 1:
 		return Movieday
-	case t.Weekday() == time.Saturday:
+	case r.Weekday() == time.Saturday:
 		return Holiday
-	case t.Weekday() == time.Sunday:
+	case r.Weekday() == time.Sunday:
 		return Holiday
 	default:
 		return Weekday
 	}
 }
 
-func NewTimeType(t time.Time) TimeType {
+func NewTimeType(r ReservationTime) TimeType {
 	switch {
-	case t.Hour() >= 20:
+	case r.Hour() >= 20:
 		return LateTime
 	default:
 		return NormalTime
